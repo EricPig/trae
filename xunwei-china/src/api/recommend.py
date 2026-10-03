@@ -83,6 +83,14 @@ async def discover(req: SearchRequest, session: AsyncSession = Depends(get_db_se
 @router.get("/dishes/{dish_id}", response_model=DishDetailResponse)
 async def dish_detail(dish_id: str, session: AsyncSession = Depends(get_db_session)):
     """菜品详情页。"""
+    from uuid import UUID
+
+    # B1: 路由层先校验 UUID 格式 —— 不让 ValueError 泄漏到中间件变成 500
+    try:
+        UUID(dish_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="dish_id 必须是有效的 UUID 格式")
+
     engine = RecommendationEngine(session)
     dish = await engine.get_by_id(dish_id)
     if not dish:

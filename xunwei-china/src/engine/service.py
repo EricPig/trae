@@ -75,8 +75,41 @@ class RecommendationEngine:
         # 2. ORM → dict（pipeline 纯函数需要 dict 输入）
         candidates = [self._dish_to_dict(d) for d in dishes]
 
-        # 3. 纯函数 pipeline
+        # 3. 纯函数 pipeline（埋点：准入/安全/分数分布）
         results = run_pipeline(candidates, user_restrictions=dietary_restrictions)
+
+        # B4 Prometheus 业务层埋点（不影响 pipeline 纯函数特性）
+        try:
+            from src.analytics.metrics import (
+                xw_pipeline_admission, xw_pipeline_safety_filter,
+                xw_pipeline_locality_score, xw_pipeline_duration,
+            )
+            from src.engine.pipeline import AdmissionDecision, SafetyStatus
+
+            # locality_score 分布
+            for r in results:
+                xw_pipeline_locality_score.observe(r.locality_score)
+
+            # 准入判定（只统计 candidates 里发生了什么，不只是最终 admitted）
+            for c in candidates:
+                adm = c.get("admission_result", "admitted")
+                xw_pipeline_admission.labels(decision=adm).inc()
+
+            # 安全层排除
+            for c in candidates:
+                completeness = c.get("allergen_info_complete", False)
+                if dietary_restrictions and c.get("common_allergens"):
+                    hits = set(c["common_allergens"]) & set(dietary_restrictions)
+                    if hits:
+                        xw_pipeline_safety_filter.labels(reason="allergen_miss").inc()
+                if not completeness:
+                    xw_pipeline_safety_filter.labels(reason="unknown_completeness").inc()
+
+            xw_pipeline_duration.labels(city=city or "unknown").observe(
+                0.0  # 耗时在 HTTP middleware 层统计，这里只打业务语义
+            )
+        except ImportError:
+            pass  # 无 prometheus_client 时跳过（不影响功能）
 
         # 4. 截断
         return results[:max_items]

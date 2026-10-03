@@ -65,6 +65,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Prometheus /metrics 端点（用 a2wsgi 转换 WSGI → ASGI）
+try:
+    from a2wsgi import WSGIMiddleware as _WSGI
+except ImportError:
+    from starlette.middleware.wsgi import WSGIMiddleware as _WSGI
+from prometheus_client import make_wsgi_app
+app.mount("/metrics", _WSGI(make_wsgi_app()))
+
 # 注册路由（统一注册层 —— src/api/router.py）
 from src.api.router import register_all
 
@@ -89,21 +97,34 @@ app.add_middleware(
 async def request_middleware(request: Request, call_next):
     import time as _t
     import uuid as _u
+    from src.analytics.metrics import (
+        xw_request_duration, xw_requests_total, xw_exceptions,
+    )
 
     start = _t.time()
+    method = request.method
+    path = request.url.path or "/"
+
     try:
         response = await call_next(request)
     except Exception as exc:
         # B1 安全加固：错误脱敏 —— 详细堆栈只进服务器日志，不回客户端
-        _logger.exception(f"Unhandled exception on {request.method} {request.url.path}")
-        return JSONResponse(
+        _logger.exception(f"Unhandled exception on {method} {path}")
+        xw_exceptions.labels(endpoint=path, exception_type=type(exc).__name__).inc()
+        response = JSONResponse(
             status_code=500,
             content={"error": "Internal Server Error", "request_id": _u.uuid4().hex[:12]},
         )
 
-    latency_ms = (_t.time() - start) * 1000
+    latency = _t.time() - start
+    status = response.status_code
+
+    # Prometheus 指标采集
+    xw_request_duration.labels(method=method, path=path, status=str(status)).observe(latency)
+    xw_requests_total.labels(method=method, path=path, status=str(status)).inc()
+
     response.headers["X-Request-ID"] = _u.uuid4().hex[:12]
-    response.headers["X-Latency-MS"] = f"{latency_ms:.1f}"
+    response.headers["X-Latency-MS"] = f"{latency * 1000:.1f}"
     return response
 
 

@@ -88,6 +88,13 @@ def _acl_runtime_guard(func_name: str) -> None:
     """
     if func_name not in ACL_ALLOWED_ENGINE_METHODS:
         if _is_in_ai_context():
+            # B4 Prometheus 打点（ACL 绕过 = 安全红线事件）
+            try:
+                from src.analytics.metrics import xw_acl_violations
+                xw_acl_violations.labels(violation_type="UNAUTHORIZED_METHOD").inc()
+            except ImportError:
+                pass
+
             raise ACLViolation(
                 "UNAUTHORIZED_METHOD",
                 f"AI 层试图调用非白名单方法 RecommendationEngine.{func_name}()。"
