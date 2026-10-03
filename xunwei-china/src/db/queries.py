@@ -71,7 +71,8 @@ def filter_by_geo(query, geo_entity_ids: Iterable):
     """过滤在给定地理范围内的 Dish。"""
     ids = list(geo_entity_ids)
     if not ids:
-        return query.where(func.text("1=0"))  # 无结果
+        # sqlalchemy.text() 是原生 SQL 片段，各后端都兼容；func.text() 在 SQLite 上会炸
+        return query.where(text("1=0"))  # 无结果 → 诚实降级
     return query.where(Dish.geo_entity_id.in_(ids))
 
 
