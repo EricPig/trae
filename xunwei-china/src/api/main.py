@@ -52,10 +52,11 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# 注册路由
-from src.api.recommend import router as recommend_router
+# 注册路由（统一注册层 —— src/api/router.py）
+from src.api.router import register_all
 
-app.include_router(recommend_router)
+_registered = register_all(app)
+print(f"[xw] 路由模块已注册: {_registered}")
 
 app.add_middleware(
     CORSMiddleware,
