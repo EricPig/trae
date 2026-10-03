@@ -52,6 +52,11 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# 注册路由
+from src.api.recommend import router as recommend_router
+
+app.include_router(recommend_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
