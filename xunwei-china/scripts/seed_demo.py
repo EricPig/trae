@@ -2,8 +2,10 @@
 种子数据脚本 —— 生成 5 省 demo 数据（川渝粤湘浙）。
 
 目的：在没有真实 ETL 时，本地开发能跑通完整 pipeline。
-策略：用 Python pipeline.compute_locality_score 计算真实 locality_score，
-然后写入 Dish 表。确保 R1-R5 断言 + 二维准入表全部成立。
+策略：
+  - 复用 src.db.connection.get_engine() 的 PostgreSQL→SQLite 回退
+  - 用 pipeline.compute_locality_score 计算真实 locality_score
+  - 然后写入 Dish 表。确保 R1-R5 断言 + 二维准入表全部成立。
 
 覆盖 4 象限：
   🟢 + 高本地性 → 最佳推荐位
@@ -11,22 +13,21 @@
   🔴 + 高本地性 → 禁降权禁折叠（护城河）
   🔴 + 低本地性 → 唯一允许折叠
 
-运行：PYTHONPATH=. python scripts/seed_demo.py
+运行：PYTHONPATH=. python scripts/seed_demo.py [--force-sqlite]
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
-from datetime import datetime, timedelta
-from uuid import uuid4
+from datetime import timedelta
+from pathlib import Path
 
-# 确保 import 正确
-sys.path.insert(0, ".")
+# 确保 import 正确（脚本入口）
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-
-from src.config import ADMISSION_TABLE, AdmissionDecision
+from src.db.connection import get_engine, reset_engine
 from src.db.models import (
     Base,
     Cuisine,
@@ -34,10 +35,13 @@ from src.db.models import (
     Dish,
     GeoEntity,
     Ingredient,
-    Technique,
 )
 from src.engine.pipeline import compute_locality_score, adjudicate_admission
+from src.config import get_utcnow
 
+# ---------------------------------------------------------------------------
+# Demo 菜品数据（覆盖 4 象限 + 不同地理）
+# ---------------------------------------------------------------------------
 
 DEMO_DISHES = [
     # === 四川省 成都市 ===
@@ -145,52 +149,60 @@ DEMO_DISHES = [
 ]
 
 
-async def seed():
-    engine = create_async_engine(
-        "postgresql+psycopg://xunwei:xunwei_dev@localhost:5432/xunwei",
-        echo=False,
-    )
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def seed(force_sqlite: bool = False) -> None:
+    # 每次 seed 都是全新启动，先重置单例让 force_sqlite 生效
+    reset_engine()
 
+    engine = get_engine(force_sqlite=force_sqlite)
+
+    # 重建 schema
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
+    # 用 sessionmaker（async_sessionmaker）
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
     async with factory() as session:
         # 1. 创建基础数据
         cuisines = {}
-        for name in set(d["cuisine"] for d in DEMO_DISHES):
+        for name in sorted({d["cuisine"] for d in DEMO_DISHES}):
             c = Cuisine(name=name)
             session.add(c)
             cuisines[name] = c
 
         cities = {}
-        for name in set(d["geo_city"] for d in DEMO_DISHES):
-            g = GeoEntity(name=name, level="city", code=f"demo-{hash(name) % 100000}")
+        for name in sorted({d["geo_city"] for d in DEMO_DISHES}):
+            # 用 hash 生成稳定 code，不依赖序列
+            code = f"demo-{abs(hash(name)) % 100000:05d}"
+            g = GeoEntity(name=name, level="city", code=code)
             session.add(g)
             cities[name] = g
 
         sources = {}
-        for name in set(d["source"] for d in DEMO_DISHES):
+        for name in sorted({d["source"] for d in DEMO_DISHES}):
             s = DataSource(
                 name=name,
                 license_type="CC0",
-                verified_at=datetime.utcnow(),
+                verified_at=get_utcnow(),
                 commercial_use_allowed=True,
             )
             session.add(s)
             sources[name] = s
 
-        # 常见过敏原
-        for name, allergen_type in [
+        # 常见过敏原 Ingredient
+        for allergen_name, allergen_type in [
             ("花生", "花生"), ("牛奶", "乳制品"), ("鸡蛋", "蛋类"),
             ("虾", "海鲜"), ("大豆", "大豆"), ("辣椒", "辛辣"), ("小麦", "麸质"),
         ]:
-            session.add(Ingredient(name=name, is_allergen=True, allergen_type=allergen_type))
+            session.add(Ingredient(name=allergen_name, is_allergen=True, allergen_type=allergen_type))
 
         await session.flush()
 
-        # 2. 创建 Dish（用 compute_locality_score + adjudicate_admission 算真实值）
+        # 2. 创建 Dish（真实 pipeline 计算分数 + 准入）
+        now = get_utcnow()
         for d in DEMO_DISHES:
             score, native, years, cuisine = compute_locality_score(
                 d["locality_level"], d["evidence_level"], d["establishment_year"]
@@ -219,7 +231,7 @@ async def seed():
                 native_score=native,
 
                 source_name=d["source"],
-                verified_at=datetime.utcnow() - timedelta(days=30),
+                verified_at=now - timedelta(days=30),
             )
             session.add(dish)
 
@@ -227,24 +239,41 @@ async def seed():
 
     # 3. 打印汇总
     async with factory() as session:
-        from sqlalchemy import select, func, text
+        from sqlalchemy import select, func
+
+        print("\n=== 种子数据汇总 ===")
+
         result = await session.execute(
             select(Dish.admission_result, func.count(Dish.id)).group_by(Dish.admission_result)
         )
-        print("\n=== 种子数据汇总 ===")
+        print("[准入判定]")
         for row in result.all():
             print(f"  {row[0]}: {row[1]}")
 
         result = await session.execute(
             select(Dish.locality_level, func.count(Dish.id)).group_by(Dish.locality_level)
         )
-        print()
+        print("\n[本地性分布]")
         for row in result.all():
             print(f"  locality_level={row[0]}: {row[1]}")
 
+        result = await session.execute(
+            select(func.avg(Dish.locality_score))
+        )
+        print(f"\n[locality_score 均值] {result.scalar():.2f}")
+
     await engine.dispose()
-    print("\n✅ 种子数据已写入")
+    print("\n✅ 种子数据已写入（SQLite/PostgreSQL 自动回退已生效）")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force-sqlite", action="store_true",
+                        help="强制使用 SQLite（即使 PostgreSQL 可用）")
+    args = parser.parse_args()
+
+    asyncio.run(seed(force_sqlite=args.force_sqlite))
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    main()

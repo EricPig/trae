@@ -256,7 +256,8 @@ def layer4_honesty(
         log.append("证据链完全缺失")
 
     # 2. 检查核验时效
-    today = datetime.utcnow()
+    from src.config import get_utcnow
+    today = get_utcnow()
     for did, ev in evidence.items():
         if ev.verified_at:
             days = (today - ev.verified_at).days

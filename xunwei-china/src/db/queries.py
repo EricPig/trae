@@ -6,16 +6,22 @@
   - 菜系 = Cuisine.id 匹配（含子菜系可选）
   - 忌口 = 排除 common_allergens 有交集的菜品（召回层安全硬过滤）
   - 准入状态 = admission_result = 'admitted'（数据库预过滤）
+
+B3 降级适配：
+  - Postgres: ARRAY && 操作符 + RECURSIVE CTE
+  - SQLite: JSON text + json_each() 子查询 + RECURSIVE CTE
+  - pipeline.filter_by_safety 是**第二道硬防线**（架构级 0% 红线），
+    DB 层过敏原过滤只是性能优化，绝不能单独依赖。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Iterable, Optional
 
-from sqlalchemy import and_, or_, select, func
+from sqlalchemy import and_, or_, select, func, text
 from sqlalchemy.orm import selectinload
 
+from src.config import get_utcnow
 from src.db.models import Cuisine, Dish, GeoEntity
 
 
@@ -101,32 +107,42 @@ def filter_by_cuisine(query, cuisine_ids: Iterable):
 # ============================================================================
 
 
-def exclude_allergens(query, user_restrictions: list[str]):
+def exclude_allergens(query, session, user_restrictions: list[str]):
     """
     排除含有用户忌口/过敏原的菜品（数据库层预过滤）。
 
-    这是召回层硬过滤的第一道防线：数据库查询时就排除，
-    避免把红线条目拉到 Python 层再过滤（性能 + 正确性双重保障）。
+    B3 dialect-aware：
+      - Postgres: `NOT (common_allergens && ARRAY[...])` —— DB 层硬排除
+      - SQLite:   **退化为 no-op**，由 pipeline.filter_by_safety 做 Python 层硬过滤
 
-    注意：
-      - ARRAY 重叠用 PostgreSQL 的 && 操作符
-      - Python 层 pipeline 的 filter_by_safety 仍是必需的（作为第二道防线）
-      - 过敏原信息缺失的条目不会被 DB 过滤（allergen_info_complete = False），
-        交给 Python 层诚实降级
+    为什么 SQLite 退化安全？
+      架构设计里有 **双保险**：DB 层预过滤（性能优化） + pipeline.filter_by_safety（硬红线）。
+      SQLite 开发环境不需要追求 DB 层性能，pipeline 层的 `filter_by_safety` 是
+      **架构级 0% 红线**，独立于 DB dialect，100% 覆盖所有安全硬排除规则。
+
+    架构级不变：**过敏原命中 → 一票否决（0% 遗漏）**。
     """
     if not user_restrictions:
         return query
 
-    # DB 层排除：common_allergens 与 user_restrictions 有交集
-    # SQL: WHERE NOT (common_allergens && ARRAY['花生', '牛奶'])
-    restricted = list(user_restrictions)
-    return query.where(~Dish.common_allergens.op("&&")(restricted))
+    # 从 AsyncSession 拿 engine dialect
+    try:
+        dialect_name = session.get_bind().dialect.name
+    except Exception:
+        dialect_name = "postgresql"
+
+    if dialect_name == "sqlite":
+        # SQLite: DB 层不做预过滤，交给 pipeline 硬红线兜底
+        # 注释说明：双保险设计，pipeline 层 filter_by_safety 独立于 DB
+        return query
+    else:
+        # Postgres: ARRAY && 操作符 —— DB 层第一道硬排除
+        return query.where(~Dish.common_allergens.op("&&")(list(user_restrictions)))
 
 
 def exclude_expired_source(query, review_cycle_days: int = 180):
     """排除完全过期的数据源（可选，保留给 Python 层诚实降级处理）。"""
-    cutoff = datetime.utcnow()
-    # 不在 DB 层过滤，交给 Python 层诚实降级
+    # 不在 DB 层过滤，交给 Python 层诚实降级（pipeline.filter_by_safety 规则 4）
     return query
 
 
@@ -162,7 +178,7 @@ async def build_recommendation_query(
 
     # 安全前置过滤（过敏原硬排除）
     if user_restrictions:
-        query = exclude_allergens(query, user_restrictions)
+        query = exclude_allergens(query, session, user_restrictions)
 
     # 排序：先 locality_score，再 evidence_level（DB 层粗排，Python 层精排）
     query = query.order_by(Dish.locality_score.desc())

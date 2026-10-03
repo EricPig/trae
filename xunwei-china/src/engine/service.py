@@ -12,10 +12,10 @@
   - 数据库连接管理（委托给 db/connection.py）
   - AI 对话（委托给 ai/pipeline.py）
 
-设计原则：
-  - 服务层是 IO 边界，pipeline 是纯函数（可独立测试）
-  - 每一层的职责单一，便于替换和降级
-  - 推荐逻辑的正确性由 pipeline 守护（R1-R5 断言）
+ACL 物理隔离（FF-ARCH-03/04）：
+  - 只有 recommend / search_discover / get_evidence_batch 三个方法对 AI 层开放
+  - get_by_id 是 API 层详情页专用，AI 层禁止调用
+  - 内部辅助方法（_dish_to_dict）不对外暴露
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai.acl import acl_guard  # B2 ACL runtime guard
 from src.db.models import Dish
 from src.db.queries import build_recommendation_query
 from src.engine.pipeline import (
@@ -41,9 +42,10 @@ class RecommendationEngine:
         self.session = session
 
     # ============================================================================
-    # 公开 API
+    # 公开 API（ACL 白名单方法）
     # ============================================================================
 
+    @acl_guard
     async def recommend(
         self,
         city: Optional[str] = None,
@@ -53,7 +55,7 @@ class RecommendationEngine:
         max_items: int = 10,
     ) -> list[Recommendation]:
         """
-        核心推荐方法。
+        核心推荐方法（ACL 白名单：AI 层唯一数据通道）。
 
         流程：
           1. DB 查询（筛选 admitted + 地理 + 菜系 + 过敏原排除）
@@ -79,6 +81,7 @@ class RecommendationEngine:
         # 4. 截断
         return results[:max_items]
 
+    @acl_guard
     async def search_discover(
         self,
         city: Optional[str] = None,
@@ -86,8 +89,7 @@ class RecommendationEngine:
     ) -> list[Recommendation]:
         """
         发现页：不设忌口，只按展示层最佳候选排序。
-
-        用于"成都有什么好吃的"这类开放式搜索。
+        ACL 白名单方法（AI 层可调用）。
         """
         return await self.recommend(
             city=city,
@@ -96,21 +98,33 @@ class RecommendationEngine:
         )
 
     async def get_by_id(self, dish_id: str) -> Optional[Dish]:
-        """按 ID 获取单个 Dish（详情页用）。"""
+        """
+        按 ID 获取单个 Dish（**API 层详情页专用，ACL 非白名单**）。
+
+        AI 层调用此方法会触发 ACLViolation（因为这会绕过 pipeline 直接返回 ORM 对象，
+        可能泄漏数据库结构或未经过 pipeline 过滤的原始数据）。
+
+        如果 AI 层需要单条菜品证据 → 用 get_evidence_batch。
+        """
         from sqlalchemy import select
         from uuid import UUID
+
+        # ACL runtime guard：检查调用栈是否有 src.ai.* 模块
+        from src.ai.acl import _acl_runtime_guard
+        _acl_runtime_guard("get_by_id")
 
         result = await self.session.execute(
             select(Dish).where(Dish.id == UUID(dish_id))
         )
         return result.scalar_one_or_none()
 
+    @acl_guard
     async def get_evidence_batch(self, dish_ids: list[str]) -> dict[str, Any]:
         """
-        获取菜品证据链（AI RAG 用）。
+        获取菜品证据链（ACL 白名单：AI RAG 唯一证据通道）。
 
-        注意：这是 ACL 的唯一数据通道（供 AI 子系统调用），
-        返回 EvidenceChain 对象（不是原始 Dish ORM）。
+        返回 EvidenceChain 对象（不是原始 Dish ORM），
+        防止 AI 层拿到数据库结构或绕过 pipeline 安全过滤。
         """
         from sqlalchemy import select
         from uuid import UUID
@@ -147,7 +161,7 @@ class RecommendationEngine:
     @staticmethod
     def _dish_to_dict(d: Dish) -> dict:
         """
-        ORM → pipeline 输入格式。
+        ORM → pipeline 输入格式（内部静态方法，ACL 不关心）。
 
         pipeline 是纯函数，只接受 dict 输入（不依赖 SQLAlchemy）。
         这里做显式转换，避免在 pipeline 里出现 ORM 属性访问。

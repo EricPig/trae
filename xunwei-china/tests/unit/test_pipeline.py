@@ -9,7 +9,7 @@
   - 展示层四象限规则
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pytest
@@ -127,7 +127,7 @@ class TestSafetyFilter:
             allergen_data_complete=True,
             user_restrictions=["花生"],
             has_evidence_source=True,
-            verified_at=datetime.utcnow(),
+            verified_at=datetime.now(timezone.utc),
         )
         assert result.is_excluded is True
         assert "花生" in result.reason
@@ -139,7 +139,7 @@ class TestSafetyFilter:
             allergen_data_complete=True,
             user_restrictions=["花生"],
             has_evidence_source=True,
-            verified_at=datetime.utcnow(),
+            verified_at=datetime.now(timezone.utc),
         )
         assert result.is_excluded is False
         assert result.status.value == "clear"
@@ -151,14 +151,14 @@ class TestSafetyFilter:
             allergen_data_complete=True,
             user_restrictions=[],
             has_evidence_source=False,
-            verified_at=datetime.utcnow(),
+            verified_at=datetime.now(timezone.utc),
         )
         assert result.is_excluded is True
         assert "幻觉" in result.reason
 
     def test_expired_verified_at_downgrades(self):
         """核验过期 → 诚实降级（不排除）。"""
-        old = datetime.utcnow() - timedelta(days=200)
+        old = datetime.now(timezone.utc) - timedelta(days=200)
         result = filter_by_safety(
             allergens=[],
             allergen_data_complete=True,
@@ -219,7 +219,7 @@ class TestPipelineIntegration:
                 "common_allergens": ["花生"],
                 "allergen_info_complete": True,
                 "source_name": "某地方志",
-                "verified_at": datetime.utcnow() - timedelta(days=10),
+                "verified_at": datetime.now(timezone.utc) - timedelta(days=10),
             },
         ]
         results = pipeline(candidates, user_restrictions=[])
@@ -240,7 +240,7 @@ class TestPipelineIntegration:
                 "common_allergens": ["花生"],
                 "allergen_info_complete": True,
                 "source_name": "某地方志",
-                "verified_at": datetime.utcnow(),
+                "verified_at": datetime.now(timezone.utc),
             },
             {
                 "id": "dish-2",
@@ -250,7 +250,7 @@ class TestPipelineIntegration:
                 "common_allergens": [],
                 "allergen_info_complete": True,
                 "source_name": "某地方志",
-                "verified_at": datetime.utcnow(),
+                "verified_at": datetime.now(timezone.utc),
             },
         ]
         results = pipeline(candidates, user_restrictions=["花生"])
@@ -270,7 +270,7 @@ class TestPipelineIntegration:
                 "common_allergens": [],
                 "allergen_info_complete": True,
                 "source_name": "商家自述",
-                "verified_at": datetime.utcnow(),
+                "verified_at": datetime.now(timezone.utc),
             },
         ]
         results = pipeline(candidates, user_restrictions=[])
@@ -289,7 +289,7 @@ class TestPipelineIntegration:
                 "common_allergens": [],
                 "allergen_info_complete": False,
                 "source_name": "本地论坛",
-                "verified_at": datetime.utcnow(),
+                "verified_at": datetime.now(timezone.utc),
             },
         ]
         results = pipeline(candidates, user_restrictions=[])

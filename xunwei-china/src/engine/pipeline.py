@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
+from src.config import get_utcnow
 from src.config import (
     ADMISSION_TABLE,
     AdmissionDecision,
@@ -205,8 +206,14 @@ def filter_by_safety(
         )
 
     # 规则 4：核验过期
+    # 注意：SQLite 存不出 timezone，读出来是 naive UTC；Postgres 读出是 aware UTC。
+    # 统一把两者都转成 UTC naive 再比较。
     if verified_at is not None:
-        days_old = (datetime.utcnow() - verified_at).days
+        now = get_utcnow()
+        if verified_at.tzinfo is not None:
+            verified_at = verified_at.astimezone().replace(tzinfo=None)
+        now_naive = now.replace(tzinfo=None) if now.tzinfo is not None else now
+        days_old = (now_naive - verified_at).days
         if days_old > review_cycle_days:
             return SafetyResult(
                 status=SafetyStatus.DATA_MISSING,

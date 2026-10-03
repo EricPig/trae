@@ -1,5 +1,13 @@
 """配置模块导出。"""
 
+from datetime import datetime, timezone
+
+
+def get_utcnow() -> datetime:
+    """F2 fix：timezone-aware UTC —— 取代已 deprecate 的 datetime.utcnow()"""
+    return datetime.now(timezone.utc)
+
+
 from src.config.constants import (
     ADMISSION_TABLE,
     AdmissionDecision,
