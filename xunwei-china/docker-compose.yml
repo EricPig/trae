@@ -1,7 +1,37 @@
-# 寻味中国 · 本地开发环境
-# T0 阶段最小化拓扑
+# 寻味中国 · 开发/生产 docker-compose
+#
+# 用法:
+#   开发（xunwei + postgres + redis）:
+#     docker compose up -d
+#
+#   只用 SQLite 零依赖:
+#     docker compose up -d xunwei
+#
+#   仅拉起数据层（前后端裸机跑）:
+#     docker compose up -d postgres redis
 
 services:
+  xunwei:
+    build: .
+    container_name: xw-app
+    environment:
+      XW_ENV: ${ENVIRONMENT:-development}
+      XW_PORT: "8765"
+      XW_WORKERS: "${XW_WORKERS:-2}"
+      # 如果启用了 postgres，取消注释:
+      # POSTGRES_URL: postgresql+psycopg://xunwei:xunwei_dev@postgres:5432/xunwei
+    ports:
+      - "8765:8765"
+    volumes:
+      - xw-data:/app/data
+      - xw-logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: xw-postgres
@@ -34,5 +64,7 @@ services:
       retries: 5
 
 volumes:
-  xw-pgdata:
-  xw-redisdata:
+  xw-data:       # SQLite DB
+  xw-logs:       # 运行日志
+  xw-pgdata:     # PostgreSQL
+  xw-redisdata:  # Redis

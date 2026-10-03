@@ -1,0 +1,59 @@
+# =============================================================================
+# 寻味中国 · systemd 服务模板
+# =============================================================================
+#
+# 安装:
+#   sudo cp deploy/xunwei.service /etc/systemd/system/xunwei.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xunwei
+#
+# 管理:
+#   systemctl status xunwei      # 状态
+#   journalctl -u xunwei -f      # 实时日志
+#   systemctl restart xunwei     # 重启
+#   systemctl stop  xunwei       # 停止
+#
+# 修改: 修改以下路径/用户后执行 daemon-reload
+# =============================================================================
+
+[Unit]
+Description=寻味中国 · 可核验的地方美食 AI 推荐平台
+After=network.target
+# 如果用 docker-compose 的 postgres/redis，改成:
+# After=docker.service xw-postgres.service xw-redis.service
+
+[Service]
+Type=simple
+
+# ==== 路径（按实际部署位置修改）====
+WorkingDirectory=/opt/xunwei-china
+Environment=VIRTUAL_ENV=/opt/xunwei-china/.venv
+Environment=PATH=/opt/xunwei-china/.venv/bin:/usr/bin
+
+# ==== 运行用户（生产环境建议专用用户）====
+# User=xunwei
+# Group=xunwei
+
+# ==== 环境变量 ====
+Environment=XW_ENV=production
+Environment=XW_PORT=8765
+# PostgreSQL 模式（自动回退 SQLite）:
+# Environment=POSTGRES_URL=postgresql+psycopg://user:pwd@pg-host:5432/xunwei
+
+# ==== 进程 ====
+ExecStart=/opt/xunwei-china/.venv/bin/python -m uvicorn src.api.main:app \
+    --host 0.0.0.0 --port 8765 \
+    --workers 4 --loop uvloop
+
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=30
+
+# ==== 资源限制（可选）====
+# MemoryMax=1G
+# CPUQuota=200%
+# LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
