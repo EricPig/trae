@@ -2,7 +2,7 @@
    推荐结果页 —— 卡片网格 + 四象限排序 + 诚实降级提示
    ======================================================== */
 
-import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $, $$ } from './lib.js';
+import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $, $$ } from '../lib.js';
 
 async function main() {
   // 从 URL 读参数

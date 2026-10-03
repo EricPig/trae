@@ -3,14 +3,21 @@
    所有后端调用集中在这里，便于替换/测试
    ======================================================== */
 
-const API_BASE = (window.location.port === '8000')
-  ? '' // 直接访问 API 端口时用相对路径
-  : 'http://localhost:8000';
+const API_BASE = (window.location.port === '8765')
+  ? ''  // 直接访问 API 端口时用相对路径
+  : (window.__XW_API_BASE__ || 'http://localhost:8765');
+// 开发环境（静态服务器 3001/3000 等）→ 8765
+// 生产环境可通过 window.__XW_API_BASE__ 注入部署地址
 
 async function api(path, options = {}) {
+  const hasBody = options.body != null;
+  const headers = { ...(options.headers || {}) };
+  if (hasBody && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
+    headers,
   });
   if (!res.ok) {
     const text = await res.text();

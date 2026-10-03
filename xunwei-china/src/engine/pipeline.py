@@ -286,6 +286,8 @@ class Recommendation:
     evidence_tag: str = ""
     source_name: str = ""
     verified_at: Optional[datetime] = None
+    cuisine_name: Optional[str] = None
+    geo_name: Optional[str] = None
 
     # 调试：每一层的判定日志
     decision_log: list[str] = field(default_factory=list)
@@ -385,6 +387,8 @@ def pipeline(
                 evidence_tag=evidence_tag,
                 source_name=c.get("source_name", ""),
                 verified_at=c.get("verified_at"),
+                cuisine_name=c.get("cuisine_name"),
+                geo_name=c.get("geo_name"),
                 decision_log=decision_log,
             )
         )

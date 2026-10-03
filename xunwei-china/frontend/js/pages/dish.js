@@ -2,7 +2,7 @@
    菜品详情页 —— 五要素依据 + 数据源 + 红线声明
    ======================================================== */
 
-import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el, Seal, $ } from './lib.js';
+import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el, Seal, $ } from '../lib.js';
 
 async function main() {
   const id = new URLSearchParams(location.search).get('id');

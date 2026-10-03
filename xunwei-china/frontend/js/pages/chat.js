@@ -2,11 +2,11 @@
    AI 对话页 —— 选餐收敛 + 诚实条
    ======================================================== */
 
-import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $ } from './lib.js';
+import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $ } from '../lib.js';
 
 async function main() {
   let capability = null;
-  try { capability = await XunweiAPI.capability(); } catch {}
+  try { capability = await XunweiAPI.capability(); } catch(e) { console.error("[capability] fetch failed:", e); }
 
   document.body.append(renderNav('chat'));
   document.body.append(renderHonestyBar(capability));

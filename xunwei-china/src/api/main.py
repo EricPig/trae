@@ -138,12 +138,20 @@ async def request_middleware(request: Request, call_next):
 
 @app.get("/")
 async def root():
+    """根路径 → 前端首页（静态文件兜底）。"""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    fe = Path(__file__).parent.parent.parent / "frontend" / "index.html"
+    if fe.exists():
+        return FileResponse(fe, media_type="text/html")
     return {
         "name": "寻味中国",
         "tagline": "可核验的地方美食 AI 推荐平台",
         "version": "0.1.0",
-        "positioning": "做「菜品的知识与出处」，不做「商户的评分与揭黑」",
     }
+
+
+# 静态文件 mount 移到文件最末尾（所有 API 路由之后）
 
 
 @app.get("/health")
@@ -195,3 +203,32 @@ async def track_event(payload: "EventRequest"):
 
 # 延迟 import 避免循环依赖
 from src.api.schemas import EventRequest  # noqa: E402
+
+
+# ============================================================================
+# 静态文件兜底（最后注册，确保 API 路由优先匹配）
+# ============================================================================
+
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles
+import os as _os
+
+_fe_dir = str(_Path(__file__).parent.parent.parent / "frontend")
+
+# 404 fallback 中间件：当 API 路由返回 404 时，尝试 serve 前端静态文件
+@app.middleware("http")
+async def _frontend_fallback(request: Request, call_next):
+    response = await call_next(request)
+    if response.status_code == 404 and request.method in ("GET", "HEAD"):
+        fe_path = _Path(_fe_dir) / request.url.path.lstrip("/")
+        if fe_path.is_file():
+            from fastapi.responses import FileResponse
+            return FileResponse(fe_path)
+        # / → index.html
+        index = _Path(_fe_dir) / "index.html"
+        if index.is_file() and request.url.path in ("", "/", "/index.html"):
+            from fastapi.responses import FileResponse
+            return FileResponse(index)
+    return response
+
+print(f"[xw] ✅ 前端静态文件兜底已就绪: {_fe_dir}")

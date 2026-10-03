@@ -2,7 +2,7 @@
    推荐引擎可视化页 —— 四层流水线 + 四象限 + 二维准入表
    ======================================================== */
 
-import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el, $ } from './lib.js';
+import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el, $ } from '../lib.js';
 
 async function main() {
   let eng = null, capability = null, red = null;

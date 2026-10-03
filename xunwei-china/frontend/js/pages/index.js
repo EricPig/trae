@@ -3,7 +3,7 @@
    搜索框（城市 + 菜系 + 忌口）+ 热门城市 + 热门菜系 + 能力档位
    ======================================================== */
 
-import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $$ } from './lib.js';
+import { XunweiAPI, LocalStore, renderNav, renderHonestyBar, renderFooter, el, Seal, $, $$ } from '../lib.js';
 
 const CITIES = ['成都', '广州', '杭州', '长沙', '重庆', '南京', '北京', '西安'];
 const CUISINES = ['川菜', '粤菜', '浙菜', '湘菜', '鲁菜', '苏菜', '闽菜', '徽菜'];
@@ -11,7 +11,7 @@ const CUISINES = ['川菜', '粤菜', '浙菜', '湘菜', '鲁菜', '苏菜', '�
 async function main() {
   // 顶部条需要能力档位数据
   let capability = null;
-  try { capability = await XunweiAPI.capability(); } catch {}
+  try { capability = await XunweiAPI.capability(); } catch(e) { console.error("[capability] failed:", String(e), "name=" + e.name, "msg=" + e.message, e.stack || "(no stack)"); }
 
   document.body.append(renderNav('index'));
   document.body.append(renderHonestyBar(capability));
@@ -27,6 +27,14 @@ async function main() {
 
   // 事件绑定
   bindSearch();
+  $('#btn-search')?.addEventListener('click', () => {
+    const city = $('#sel-city').value;
+    const cuisine = $('#sel-cuisine').value;
+    const restrictions = LocalStore.getRestrictions();
+    if (!city) { alert('请先选择一个城市'); return; }
+    const params = new URLSearchParams({ city, cuisine: cuisine || '', restrictions: restrictions.join(',') });
+    location.href = `results.html?${params}`;
+  });
 }
 
 function hero() {
@@ -125,17 +133,6 @@ function updateRestrictions() {
   const arr = $$('.chip.active').map(c => c.textContent);
   LocalStore.setRestrictions(arr);
 }
-
-$$(document).ready(() => {
-  $('#btn-search')?.addEventListener('click', () => {
-    const city = $('#sel-city').value;
-    const cuisine = $('#sel-cuisine').value;
-    const restrictions = LocalStore.getRestrictions();
-    if (!city) { alert('请先选择一个城市'); return; }
-    const params = new URLSearchParams({ city, cuisine: cuisine || '', restrictions: restrictions.join(',') });
-    location.href = `results.html?${params}`;
-  });
-});
 
 function capabilitySection(cap) {
   if (!cap) return el('section');

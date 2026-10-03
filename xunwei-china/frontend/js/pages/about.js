@@ -2,7 +2,7 @@
    关于页 —— 能力档位详解 + 红线详情 + 隐私合规 + 架构透明
    ======================================================== */
 
-import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el } from './lib.js';
+import { XunweiAPI, renderNav, renderHonestyBar, renderFooter, el } from '../lib.js';
 
 async function main() {
   let cap = null, red = null, retention = null;

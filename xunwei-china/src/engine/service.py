@@ -140,14 +140,21 @@ class RecommendationEngine:
         如果 AI 层需要单条菜品证据 → 用 get_evidence_batch。
         """
         from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
         from uuid import UUID
 
         # ACL runtime guard：检查调用栈是否有 src.ai.* 模块
         from src.ai.acl import _acl_runtime_guard
         _acl_runtime_guard("get_by_id")
 
+        # eager load 关联对象 —— async session 禁止懒加载
         result = await self.session.execute(
-            select(Dish).where(Dish.id == UUID(dish_id))
+            select(Dish)
+            .where(Dish.id == UUID(dish_id))
+            .options(
+                selectinload(Dish.cuisine),
+                selectinload(Dish.geo_entity),
+            )
         )
         return result.scalar_one_or_none()
 
