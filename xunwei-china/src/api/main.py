@@ -65,13 +65,16 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Prometheus /metrics 端点（用 a2wsgi 转换 WSGI → ASGI）
-try:
-    from a2wsgi import WSGIMiddleware as _WSGI
-except ImportError:
-    from starlette.middleware.wsgi import WSGIMiddleware as _WSGI
-from prometheus_client import make_wsgi_app
-app.mount("/metrics", _WSGI(make_wsgi_app()))
+# Prometheus /metrics —— 直接用 FastAPI endpoint 返回，避免 mount 导致的 307 重定向
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from fastapi.responses import Response
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
 
 # 注册路由（统一注册层 —— src/api/router.py）
 from src.api.router import register_all

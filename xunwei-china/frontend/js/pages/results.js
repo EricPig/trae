@@ -13,10 +13,13 @@ async function main() {
 
   document.body.append(renderNav('index'));
 
-  const main = el('main', {},
+  const main = el('main', { role: 'main' },
     resultsHeader(city, cuisine, restrictions),
-    el('div', { id: 'results-area', class: 'container', style: 'padding: 32px 0 0;' },
-      el('div', { class: 'flex-center', style: 'padding: 80px 0;' },
+    el('div', { id: 'results-area', class: 'container', style: 'padding: 32px 0 0;',
+               role: 'region', 'aria-label': '推荐结果' },
+      el('div', { class: 'flex-center', style: 'padding: 80px 0;',
+                  role: 'status', 'aria-live': 'polite',
+                  'aria-label': '正在筛选本地美食' },
         el('span', { class: 'loading-dots text-muted' }, '正在筛选本地美食'),
       ),
     ),

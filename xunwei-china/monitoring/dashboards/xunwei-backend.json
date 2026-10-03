@@ -1,0 +1,254 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROM",
+      "label": "Prometheus",
+      "description": "寻味中国后端 Prometheus 数据源",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus",
+      "current": { "type": "prometheus", "uid": "${DS_PROM_UID}" }
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "寻味中国 · 架构红线可观测性仪表板（FF-SAFE-01 / FF-ARCH-03 / FF-DATA-01）",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "🏛️ 架构红线守护（实时）",
+      "type": "row",
+      "panels": [
+        {
+          "id": "redline-safety",
+          "title": "FF-SAFE-01 过敏原违反率 = 0%",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "xw_pipeline_safety_filter_total{reason=\"allergen_miss\"}",
+              "legendFormat": "allergen_miss 总数"
+            },
+            {
+              "expr": "rate(xw_pipeline_safety_filter_total{reason=\"allergen_miss\"}[5m])",
+              "legendFormat": "5min 速率"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "description": "任何 allergen_miss 计数 > 0 都应该是 pipeline 主动排除了命中过敏原的菜品 —— 但架构目标是 0% 遗漏"
+        },
+        {
+          "id": "redline-acl",
+          "title": "FF-ARCH-03/04 ACL 绕过 = 0",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "xw_acl_violations_total",
+              "legendFormat": "ACL violation 总数"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              },
+              "unit": "short"
+            }
+          },
+          "description": "AI 层绕过 ACL guard 的次数 —— 架构目标恒为 0"
+        },
+        {
+          "id": "redline-exception",
+          "title": "异常数（5min 速率）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_exceptions_total[5m])) by (endpoint, exception_type)",
+              "legendFormat": "{{endpoint}} / {{exception_type}}"
+            }
+          ],
+          "description": "未捕获异常的 5 分钟速率 —— 任何上升趋势都需要排查"
+        }
+      ]
+    },
+    {
+      "title": "📊 Pipeline 语义指标",
+      "type": "row",
+      "panels": [
+        {
+          "id": "pipeline-admission",
+          "title": "准入层决策分布",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_pipeline_admission_total[10m])) by (decision)",
+              "legendFormat": "{{decision}}"
+            }
+          ]
+        },
+        {
+          "id": "pipeline-locality",
+          "title": "locality_score 分布（直方图）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(xw_pipeline_locality_score_bucket_bucket[30m])) by (le))",
+              "legendFormat": "P50 locality_score"
+            },
+            {
+              "expr": "histogram_quantile(0.9, sum(rate(xw_pipeline_locality_score_bucket_bucket[30m])) by (le))",
+              "legendFormat": "P90 locality_score"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(xw_pipeline_locality_score_bucket_bucket[30m])) by (le))",
+              "legendFormat": "P99 locality_score"
+            }
+          ]
+        },
+        {
+          "id": "pipeline-safety",
+          "title": "安全层排除原因（累计）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(increase(xw_pipeline_safety_filter_total[1h])) by (reason)",
+              "legendFormat": "{{reason}}"
+            }
+          ],
+          "description": "allergen_miss 应该恒为 0（所有命中都被主动过滤掉）"
+        }
+      ]
+    },
+    {
+      "title": "🌐 HTTP 层",
+      "type": "row",
+      "panels": [
+        {
+          "id": "http-latency",
+          "title": "API 延迟（分路径 P95）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(xw_request_duration_seconds_bucket[5m])) by (le, path, status))",
+              "legendFormat": "{{path}} HTTP {{status}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "s" }
+          }
+        },
+        {
+          "id": "http-traffic",
+          "title": "请求量（分方法/路径）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_requests_total[5m])) by (method, path)",
+              "legendFormat": "{{method}} {{path}}"
+            }
+          ]
+        },
+        {
+          "id": "http-4xx-5xx",
+          "title": "错误率（4xx/5xx）",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_requests_total{status=~\"5..\"}[5m])) by (path) / sum(rate(xw_requests_total[5m])) by (path)",
+              "legendFormat": "5xx ratio {{path}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+          }
+        }
+      ]
+    },
+    {
+      "title": "🤖 AI 层 + 诚实降级",
+      "type": "row",
+      "panels": [
+        {
+          "id": "chat-honesty",
+          "title": "诚实降级触发次数",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_chat_honesty_flags_total[10m])) by (flag)",
+              "legendFormat": "{{flag}}"
+            }
+          ],
+          "description": "source_missing / evidence_insufficient / data_conflict —— 任何上升都意味着数据源覆盖不足"
+        },
+        {
+          "id": "chat-rounds",
+          "title": "收敛轮次分布",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${DS_PROM_UID}" },
+          "targets": [
+            {
+              "expr": "sum(rate(xw_chat_rounds_total[10m])) by (rounds)",
+              "legendFormat": "rounds={{rounds}}"
+            }
+          ],
+          "description": "架构硬约束：max_rounds ≤ 4。如果 4 轮计数激增，说明推荐结果收敛性差"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["xunwei", "architecture", "chinese-food", "prometheus"],
+  "templating": {
+    "list": []
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "寻味中国 · 后端可观测性仪表板",
+  "uid": "xunwei-backend-observability",
+  "version": 1,
+  "weekStart": ""
+}
