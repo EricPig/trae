@@ -28,6 +28,7 @@ import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from src.config import get_utcnow
 from typing import Optional
 
 # WDCU 的有效决策事件名（产品全案 §2.4）
@@ -59,7 +60,7 @@ class BehaviorEventPayload:
             "event_name": self.event_name,
             "entity_id": self.entity_id,
             "properties": self.properties,
-            "occurred_at": self.occurred_at or datetime.utcnow(),
+            "occurred_at": self.occurred_at or get_utcnow(),
         }
 
     @property

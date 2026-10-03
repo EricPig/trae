@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,6 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
+
+
+# 内部日志（详细错误只进日志，不回客户端）
+_logger = logging.getLogger("xw.api")
 
 
 # ============================================================================
@@ -33,6 +38,14 @@ async def lifespan(app: FastAPI):
         print("[xw] 进程启动被拒绝 —— 架构不变量被破坏")
         raise SystemExit(1)
     print(f"[xw] ✅ 架构断言 R1-R5 全部通过")
+
+    # B2 ACL: 启动时验证 AI 模块没有 forbidden imports
+    try:
+        from src.ai.acl import verify_ai_no_forbidden_imports
+        verify_ai_no_forbidden_imports()
+        print("[xw] ✅ ACL 进程级断言通过")
+    except Exception as e:
+        print(f"[xw] ⚠️ ACL 启动检查: {e}")
 
     yield
 
@@ -68,20 +81,28 @@ app.add_middleware(
 
 
 # ============================================================================
-# 中间件：请求追踪 + 延迟测量
+# 中间件：请求追踪 + 延迟测量 + 错误脱敏
 # ============================================================================
 
 
 @app.middleware("http")
 async def request_middleware(request: Request, call_next):
-    start = __import__("time").time()
+    import time as _t
+    import uuid as _u
+
+    start = _t.time()
     try:
         response = await call_next(request)
     except Exception as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        # B1 安全加固：错误脱敏 —— 详细堆栈只进服务器日志，不回客户端
+        _logger.exception(f"Unhandled exception on {request.method} {request.url.path}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal Server Error", "request_id": _u.uuid4().hex[:12]},
+        )
 
-    latency_ms = (__import__("time").time() - start) * 1000
-    response.headers["X-Request-ID"] = __import__("uuid").uuid4().hex[:12]
+    latency_ms = (_t.time() - start) * 1000
+    response.headers["X-Request-ID"] = _u.uuid4().hex[:12]
     response.headers["X-Latency-MS"] = f"{latency_ms:.1f}"
     return response
 
@@ -133,12 +154,20 @@ async def red_lines():
 
 
 @app.post("/api/event")
-async def track_event(payload: dict):
+async def track_event(payload: "EventRequest"):
     """
     行为埋点接收端点。
 
+    B1 加固：用 EventRequest schema 强校验，杜绝裸 dict 注入。
     fire-and-forget —— 实际生产应写入 Redis Stream / Kafka
-    MVP 阶段可直接写入数据库（同步）
     """
     # 这里只做骨架，实际异步队列接入由 analytics worker 处理
-    return {"status": "accepted", "note": "fire-and-forget，实际写入由 worker 处理"}
+    return {
+        "status": "accepted",
+        "event_name": payload.event_name,
+        "note": "fire-and-forget，实际写入由 worker 处理",
+    }
+
+
+# 延迟 import 避免循环依赖
+from src.api.schemas import EventRequest  # noqa: E402

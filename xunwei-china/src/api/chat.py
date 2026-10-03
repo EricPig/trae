@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from src.config import get_utcnow
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -121,7 +122,7 @@ async def chat(req: ChatRequest, session: AsyncSession = Depends(get_db_session)
     _conversation_cache[conv_id] = {
         "restrictions": constraint.dietary_restrictions,
         "last_message": req.message,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": get_utcnow().isoformat(),
     }
 
     return ChatResponse(

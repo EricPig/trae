@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from src.config import get_utcnow
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -263,7 +264,7 @@ async def data_integrity_dashboard(
     allergen_done = allergen_complete.scalar() or 0
 
     # 核验时效
-    cutoff = datetime.utcnow()
+    cutoff = get_utcnow()
     result = await session.execute(
         select(
             func.count(Dish.id).label("total"),

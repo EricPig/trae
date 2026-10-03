@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timedelta
+from src.config import get_utcnow
 from typing import Optional
 from uuid import UUID
 
@@ -205,7 +206,7 @@ async def authorize_storage(req: AuthorizeRequest, session: AsyncSession = Depen
     # 在 taste_preferences 里记一个标记
     tp = dict(profile.taste_preferences or {})
     if req.accept:
-        tp["_server_storage_authorized_at"] = datetime.utcnow().isoformat()
+        tp["_server_storage_authorized_at"] = get_utcnow().isoformat()
     else:
         tp.pop("_server_storage_authorized_at", None)
     profile.taste_preferences = tp
@@ -337,7 +338,7 @@ async def export_profile(
     ]
 
     return {
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": get_utcnow().isoformat(),
         "user_hash": h,
         "profile": {
             "dietary_restrictions": list(profile.dietary_restrictions or []) if profile else [],
